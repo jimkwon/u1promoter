@@ -1,3 +1,3 @@
 # U1 promoter project  
-
-Snakemake and Jupyter Notebook files will be uploaded. 
+  
+The details will be updated after publication.  
