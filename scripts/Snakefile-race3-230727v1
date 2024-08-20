@@ -1,0 +1,115 @@
+import sys
+#sys.path.append('/home/kwonschul/notebooks')
+import time
+#from initialize import time_stamp
+DATE = time.strftime('%y%m%d')
+
+# based on 2017 Snakefile-clv (Mol Cell 2019 Kwon et al)
+# 27/7/2023
+
+# Make 'logs' folder manually
+
+
+
+
+
+
+
+
+
+
+RAW_DATA_DIR = '/home/kwonschul/data/hku_NGS/05_novaseq78_230727'
+
+# 3'RACE OR 5'RACE---------------------------------------
+# 3'RACE name contains 'L2' (lane 2), and 5'RACE name contains 'L1' (lane 1).
+# 3'RACE uses '_1.fa.gz', and 5'RACE uses '_2.fa.gz' (Forward and Reverse, respectively).
+EXTENSION = 'L2_1.fq.gz'	# for 3'RACE
+#EXTENSION = 'L1_2.fq.gz'	# for 5'RACE
+
+
+
+
+# 3'RACE-specific-----------------------------------------
+ADAPTOR3 = 'AGATCGGAAGAGCACACGTCT'	#NEB-3'adaptor (contains 4 random nucleotides at 5' end)
+ADAPTOR3_OFFSET = 4
+
+# 3'RACE-sample-specific----------------------------------
+# 3'RACE (EGFP12)
+SAMPLES = ['3RACE-A01-pKW151',
+		   '3RACE-A02-pEZ105',
+		   '3RACE-B01-pEZ17',
+		   '3RACE-B02-pKW151',
+		   '3RACE-B03-pEZ105',
+		   '3RACE-B06-pEZ113',
+		   '3RACE-B07-pEZ114',
+		   '3RACE-B08-pEZ108',
+		   '3RACE-B09-pEZ109',
+		   '3RACE-B10-pEZ20']
+ADAPTOR5 = 'cttgctcaccatggtgg' #oKW702
+
+## 3'RACE (KRAS1)
+#SAMPLES = ['3RACE-B04-pEZ106']
+#ADAPTOR5 = 'GGACCATAGGTACATCTT' #oKW703
+
+## 3'RACE (KRAS2)
+#SAMPLES = ['3RACE-B05-pEZ107']
+#ADAPTOR5 = 'GTGAATATCTTCAAATGAT' #oKW704
+
+
+#------------------------------end of the sample specific part
+MIN_QUAL = 30 
+MIN_QUALIFIED = 95
+MIN_LENGTH = 20
+
+STAMP = '========== NEW RUN at %s ==========\n' % ''
+LOG = 'logs/%s.log' % DATE
+logf = open(LOG, 'a')
+logf.write(STAMP)
+logf.close()
+
+
+rule all:
+    input: 'logs/%s.log' % DATE,
+           expand('data/{sample}.trim3a.fastq.gz', sample=SAMPLES),
+           expand('data/{sample}.trim3a.qc.fastq.gz', sample=SAMPLES),
+           expand('data/{sample}.trim3a.qc.trim4.fastq.gz', sample=SAMPLES),
+           expand('data/{sample}.insertonly.fastq.gz', sample=SAMPLES),
+           expand('data/{sample}.count.txt', sample=SAMPLES)
+
+rule make_log:
+    output: 'logs/%s.log' % DATE
+    shell: 'echo "{STAMP}" > {output}'
+
+rule trim_3adaptor:
+    output: 'data/{sample}.trim3a.fastq.gz'
+    shell: 'zcat {RAW_DATA_DIR}/{wildcards.sample}_{EXTENSION} | \
+            cutadapt - -a {ADAPTOR3} --trimmed-only -m {MIN_LENGTH} 2>> {LOG} | \
+            gzip -c - > {output}'
+
+rule quality_filter:
+    input: 'data/{sample}.trim3a.fastq.gz'
+    output: 'data/{sample}.trim3a.qc.fastq.gz'
+    shell: 'zcat {input} | \
+            fastq_quality_filter - -v -Q33 -q {MIN_QUAL} -p {MIN_QUALIFIED} 2>> {LOG} | \
+            gzip -c - > {output}'
+
+rule trim_random_barcode_from_3adaptor:
+    input: 'data/{sample}.trim3a.qc.fastq.gz'
+    output: 'data/{sample}.trim3a.qc.trim4.fastq.gz'
+    shell: 'zcat {input} | \
+            fastx_trimmer - -Q33 -t 4 -z 2>> {LOG} > {output}'
+
+rule trim_5adaptor:
+    input: 'data/{sample}.trim3a.qc.trim4.fastq.gz'
+    output: 'data/{sample}.insertonly.fastq.gz'
+    shell: 'zcat {input} | \
+            cutadapt - -g {ADAPTOR5} --trimmed-only 2>> {LOG} | \
+            gzip -c - > {output}'
+
+rule count_reads:
+    input: 'data/{sample}.insertonly.fastq.gz'
+	output: 'data/{sample}.count.txt'
+	shell: 'zcat {input} |\
+			grep "^@" -A 1 --no-group-separator - 2>> {LOG} |\
+			grep -v "^@" --no-group-separator - 2>> {LOG} |\
+			sort - | uniq -c - | sort -k 1nr - 2>> {LOG} > {output}'
